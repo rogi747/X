@@ -2,9 +2,24 @@
 #include <spawn.h>
 #include <stdlib.h>
 #import <UIKit/UIKit.h>
+#import "ProjectXLogging.h"
+#if __has_include(<roothide.h>)
 #import <roothide.h>
+#else
+#ifndef jbroot
+#define jbroot(path) (path)
+#endif
+#endif
 
 NSString *runCommand(NSString *command) {
+    if ([command containsString:@"rm -rf"] &&
+        ([command containsString:@"/var/lib/"] ||
+         [command containsString:@"/private/var/lib/"] ||
+         [command containsString:@" rm -rf /var"] ||
+         [command containsString:@" rm -rf /private/var"])) {
+        PXLog(@"[ProjectXDaemon] Refusing to run unsafe command: %@", command);
+        return @"Refused unsafe command";
+    }
     // 设置管道用于捕获输出
     int pipefd[2];
     pipe(pipefd);
@@ -45,4 +60,3 @@ NSString *runCommand(NSString *command) {
     
     return rawOutput;
 }
-

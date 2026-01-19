@@ -200,7 +200,7 @@ static void darwinNotificationCallback(
     
     // "Profiles" text - centered in the title view
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(50, 0, 100, 44)];
-    titleLabel.text = @"备份";
+    titleLabel.text = @"Backups";
     titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
     titleLabel.textColor = [UIColor labelColor];
     titleLabel.textAlignment = NSTextAlignmentCenter;
@@ -220,7 +220,7 @@ static void darwinNotificationCallback(
     
     // "Current" text (top line)
     UILabel *currentLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 2, 40, 14)];
-    currentLabel.text = @"当前";
+    currentLabel.text = @"Current";
     currentLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightRegular];
     currentLabel.textColor = [UIColor secondaryLabelColor];
     currentLabel.textAlignment = NSTextAlignmentRight;
@@ -230,7 +230,7 @@ static void darwinNotificationCallback(
     
     // "Profile" text (bottom line)
     UILabel *profileSubLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 16, 40, 14)];
-    profileSubLabel.text = @"备份";
+    profileSubLabel.text = @"Backup";
     profileSubLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightRegular];
     profileSubLabel.textColor = [UIColor secondaryLabelColor];
     profileSubLabel.textAlignment = NSTextAlignmentRight;
@@ -434,13 +434,13 @@ static void darwinNotificationCallback(
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if (section == 0) {
-        return @"存储空间";
+        return @"Storage";
     } else if (section == 1) {
-        return @"搜索备份";
+        return @"Search Backups";
     } else if (section == 2) {
-        return @"操作";
+        return @"Actions";
     } else {
-        return @"备份";
+        return @"Backups";
     }
 }
 
@@ -452,7 +452,7 @@ static void darwinNotificationCallback(
         
         // Create the label
         UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(15, 8, 150, 30)];
-        titleLabel.text = @"搜索备份";
+        titleLabel.text = @"Search Backups";
         titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
         titleLabel.textColor = [UIColor secondaryLabelColor];
         [headerView addSubview:titleLabel];
@@ -543,7 +543,7 @@ static void darwinNotificationCallback(
             
             // "AVAILABLE" text positioned below the primary storage label
             UILabel *availableLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 45, 100, 16)];
-            availableLabel.text = @"可用";
+            availableLabel.text = @"Available";
             availableLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
             availableLabel.textColor = [UIColor secondaryLabelColor];
             [cardView addSubview:availableLabel];
@@ -646,7 +646,7 @@ static void darwinNotificationCallback(
         
         // Create a modern search text field
         UITextField *searchField = [[UITextField alloc] initWithFrame:CGRectMake(15, 10, searchContainer.bounds.size.width - 80, 40)];
-        searchField.placeholder = @"通过备份名或ID搜索";
+        searchField.placeholder = @"Search by backup name or ID";
         searchField.font = [UIFont systemFontOfSize:16];
         searchField.backgroundColor = [UIColor tertiarySystemBackgroundColor];
         searchField.layer.cornerRadius = 10;
@@ -725,30 +725,17 @@ static void darwinNotificationCallback(
         
         // Configure button with icon and text - smaller font
         UIImage *importExportIcon = [UIImage systemImageNamed:@"square.and.arrow.up.on.square"];
-        NSString *importExportTitle = @"导入/导出";
+        NSString *importExportTitle = @"Import/Export";
         
         // Create configuration for button with smaller text
-        UIButtonConfiguration *importExportConfig = [UIButtonConfiguration filledButtonConfiguration];
-        importExportConfig.title = importExportTitle;
-        importExportConfig.image = importExportIcon;
-        importExportConfig.imagePlacement = NSDirectionalRectEdgeLeading;
-        importExportConfig.imagePadding = 4; // Reduced from 8
-        importExportConfig.cornerStyle = UIButtonConfigurationCornerStyleMedium;
-        importExportConfig.baseBackgroundColor = [[UIColor systemBlueColor] colorWithAlphaComponent:0.1];
-        importExportConfig.baseForegroundColor = [UIColor systemBlueColor];
-        
-        // Set smaller font size
         UIFont *smallerFont = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium]; // Reduced font size
-        importExportConfig.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *textAttributes) {
-            NSMutableDictionary *newAttributes = [textAttributes mutableCopy];
-            newAttributes[NSFontAttributeName] = smallerFont;
-            return newAttributes;
-        };
-        
-        // Reduce content insets to make button more compact
-        importExportConfig.contentInsets = NSDirectionalEdgeInsetsMake(4, 8, 4, 8);
-        
-        importExportButton.configuration = importExportConfig;
+        [importExportButton setTitle:importExportTitle forState:UIControlStateNormal];
+        [importExportButton setImage:importExportIcon forState:UIControlStateNormal];
+        importExportButton.titleLabel.font = smallerFont;
+        importExportButton.backgroundColor = [[UIColor systemBlueColor] colorWithAlphaComponent:0.1];
+        [importExportButton setTitleColor:[UIColor systemBlueColor] forState:UIControlStateNormal];
+        importExportButton.contentEdgeInsets = UIEdgeInsetsMake(4, 8, 4, 8);
+        importExportButton.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
         importExportButton.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleRightMargin;
         [importExportButton addTarget:self action:@selector(importExportButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
         
@@ -765,29 +752,15 @@ static void darwinNotificationCallback(
         
         // Configure button with icon and text - smaller text
         UIImage *trashIcon = [UIImage systemImageNamed:@"trash"];
-        NSString *trashTitle = @"清空备份";
+        NSString *trashTitle = @"Delete All Backups";
         
-        // Create configuration for button with smaller text
-        UIButtonConfiguration *trashConfig = [UIButtonConfiguration filledButtonConfiguration];
-        trashConfig.title = trashTitle;
-        trashConfig.image = trashIcon;
-        trashConfig.imagePlacement = NSDirectionalRectEdgeLeading;
-        trashConfig.imagePadding = 4; // Reduced from 8
-        trashConfig.cornerStyle = UIButtonConfigurationCornerStyleMedium;
-        trashConfig.baseBackgroundColor = [[UIColor systemRedColor] colorWithAlphaComponent:0.1];
-        trashConfig.baseForegroundColor = [UIColor systemRedColor];
-        
-        // Set smaller font size
-        trashConfig.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *textAttributes) {
-            NSMutableDictionary *newAttributes = [textAttributes mutableCopy];
-            newAttributes[NSFontAttributeName] = smallerFont;
-            return newAttributes;
-        };
-        
-        // Reduce content insets to make button more compact
-        trashConfig.contentInsets = NSDirectionalEdgeInsetsMake(4, 8, 4, 8);
-        
-        trashAllButton.configuration = trashConfig;
+        [trashAllButton setTitle:trashTitle forState:UIControlStateNormal];
+        [trashAllButton setImage:trashIcon forState:UIControlStateNormal];
+        trashAllButton.titleLabel.font = smallerFont;
+        trashAllButton.backgroundColor = [[UIColor systemRedColor] colorWithAlphaComponent:0.1];
+        [trashAllButton setTitleColor:[UIColor systemRedColor] forState:UIControlStateNormal];
+        trashAllButton.contentEdgeInsets = UIEdgeInsetsMake(4, 8, 4, 8);
+        trashAllButton.imageEdgeInsets = UIEdgeInsetsMake(0, -4, 0, 4);
         trashAllButton.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleLeftMargin;
         [trashAllButton addTarget:self action:@selector(trashAllButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
         
@@ -1041,7 +1014,7 @@ static void darwinNotificationCallback(
 
 - (void)switchToProfile:(Profile *)profile {
     // Show loading indicator
-    [[LoadingView sharedInstance] showWithMessage:@"切换备份中"];
+    [[LoadingView sharedInstance] showWithMessage:@"Switching backup..."];
     
     // Switch to the selected profile
     [[DaemonApiManager sharedManager] switchBackup:profile comp:^(id response, NSError *error) {
@@ -1076,7 +1049,7 @@ static void darwinNotificationCallback(
     
     [alert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
         textField.text = profile.name;
-        textField.placeholder = @"备份名";
+        textField.placeholder = @"Backup name";
     }];
     
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
@@ -1089,7 +1062,7 @@ static void darwinNotificationCallback(
         NSString *newName = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         if (newName.length > 0) {
             // Show loading indicator
-            [[LoadingView sharedInstance] showWithMessage:@"处理中"];
+            [[LoadingView sharedInstance] showWithMessage:@"Processing..."];
 
             profile.name = newName;
             // profile 修改为newName
@@ -1163,7 +1136,7 @@ static void darwinNotificationCallback(
                                             style:UIAlertActionStyleDestructive
                                           handler:^(UIAlertAction * _Nonnull action) {
         // Show loading indicator
-        [[LoadingView sharedInstance] showWithMessage:@"处理中"];
+        [[LoadingView sharedInstance] showWithMessage:@"Processing..."];
         
         [manager remove:profile];
         [[DaemonApiManager sharedManager] removeBackup:profile comp:^(id response, NSError *error){
@@ -1332,7 +1305,7 @@ static void darwinNotificationCallback(
 
 - (void)importExportButtonTapped:(UIButton *)sender {
     // To be implemented later
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导入/导出"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import/Export"
                                                                message:@"Import/Export functionality will be configured later."
                                                         preferredStyle:UIAlertControllerStyleAlert];
     
@@ -1357,7 +1330,7 @@ static void darwinNotificationCallback(
 
 - (void)deleteAllProfiles {
     // Show loading indicator
-    [[LoadingView sharedInstance] showWithMessage:@"处理中"];
+    [[LoadingView sharedInstance] showWithMessage:@"Processing..."];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSError *error = nil;
         
@@ -1489,12 +1462,9 @@ static void darwinNotificationCallback(
     self.renameButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.renameButton.frame = CGRectMake(200, 22, 30, 30);
     
-    // Use modern UIButtonConfiguration API for iOS 15+
-    UIButtonConfiguration *renameConfig = [UIButtonConfiguration plainButtonConfiguration];
-    renameConfig.image = [UIImage systemImageNamed:@"pencil"];
-    renameConfig.baseForegroundColor = [UIColor secondaryLabelColor];
-    renameConfig.contentInsets = NSDirectionalEdgeInsetsMake(5, 5, 5, 5);
-    self.renameButton.configuration = renameConfig;
+    [self.renameButton setImage:[UIImage systemImageNamed:@"pencil"] forState:UIControlStateNormal];
+    [self.renameButton setTitleColor:[UIColor secondaryLabelColor] forState:UIControlStateNormal];
+    self.renameButton.contentEdgeInsets = UIEdgeInsetsMake(5, 5, 5, 5);
     
     self.renameButton.userInteractionEnabled = YES;
     [self.innerCard addSubview:self.renameButton];
@@ -1503,12 +1473,9 @@ static void darwinNotificationCallback(
     self.infoButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.infoButton.frame = CGRectMake(self.innerCard.bounds.size.width - 44, 13, 32, 32);
     
-    // Use modern UIButtonConfiguration API for iOS 15+
-    UIButtonConfiguration *infoConfig = [UIButtonConfiguration plainButtonConfiguration];
-    infoConfig.image = [UIImage systemImageNamed:@"info.circle"];
-    infoConfig.baseForegroundColor = [UIColor systemBlueColor];
-    infoConfig.contentInsets = NSDirectionalEdgeInsetsMake(5, 5, 5, 5);
-    self.infoButton.configuration = infoConfig;
+    [self.infoButton setImage:[UIImage systemImageNamed:@"info.circle"] forState:UIControlStateNormal];
+    [self.infoButton setTitleColor:[UIColor systemBlueColor] forState:UIControlStateNormal];
+    self.infoButton.contentEdgeInsets = UIEdgeInsetsMake(5, 5, 5, 5);
     
     self.infoButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     self.infoButton.userInteractionEnabled = YES;
@@ -1537,13 +1504,10 @@ static void darwinNotificationCallback(
     CGFloat switchX = buttonSize + buttonSpacing;
     self.switchButton.frame = CGRectMake(switchX, 5, buttonSize, buttonSize);
     
-    // Use modern UIButtonConfiguration API for iOS 15+
-    UIButtonConfiguration *switchConfig = [UIButtonConfiguration plainButtonConfiguration];
-    // Use a simpler SF Symbol that's definitely available in iOS 15+
-    switchConfig.image = [UIImage systemImageNamed:@"arrow.triangle.2.circlepath"];
-    switchConfig.baseForegroundColor = [UIColor systemBlueColor];
-    switchConfig.contentInsets = NSDirectionalEdgeInsetsMake(5, 5, 5, 5);
-    self.switchButton.configuration = switchConfig;
+    // Use a simpler SF Symbol that's definitely available in iOS 13+
+    [self.switchButton setImage:[UIImage systemImageNamed:@"arrow.triangle.2.circlepath"] forState:UIControlStateNormal];
+    [self.switchButton setTitleColor:[UIColor systemBlueColor] forState:UIControlStateNormal];
+    self.switchButton.contentEdgeInsets = UIEdgeInsetsMake(5, 5, 5, 5);
     
     self.switchButton.userInteractionEnabled = YES;
     [actionContainer addSubview:self.switchButton];
@@ -1553,12 +1517,9 @@ static void darwinNotificationCallback(
     CGFloat deleteX = switchX + buttonSize + buttonSpacing;
     self.deleteButton.frame = CGRectMake(deleteX, 5, buttonSize, buttonSize);
     
-    // Use modern UIButtonConfiguration API for iOS 15+
-    UIButtonConfiguration *deleteConfig = [UIButtonConfiguration plainButtonConfiguration];
-    deleteConfig.image = [UIImage systemImageNamed:@"trash"];
-    deleteConfig.baseForegroundColor = [UIColor systemRedColor];
-    deleteConfig.contentInsets = NSDirectionalEdgeInsetsMake(5, 5, 5, 5);
-    self.deleteButton.configuration = deleteConfig;
+    [self.deleteButton setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
+    [self.deleteButton setTitleColor:[UIColor systemRedColor] forState:UIControlStateNormal];
+    self.deleteButton.contentEdgeInsets = UIEdgeInsetsMake(5, 5, 5, 5);
     
     self.deleteButton.userInteractionEnabled = YES;
     [actionContainer addSubview:self.deleteButton];
@@ -1583,20 +1544,8 @@ static void darwinNotificationCallback(
     self.accessoryType = UITableViewCellAccessoryNone;
 }
 
-// Add visual feedback for button presses using iOS 15 compatible approach
 - (void)addButtonHighlightEffects:(UIButton *)button {
-    // For iOS 15+, we use the built-in UIButtonConfiguration highlighting
-    // without trying to customize too much
-    
-    // Set up a simple handler that handles the pressed state
-    button.configurationUpdateHandler = ^(__kindof UIButton *btn) {
-        // Apply a simple background when pressed
-        if (btn.isHighlighted) {
-            btn.backgroundColor = [UIColor systemGray5Color];
-        } else {
-            btn.backgroundColor = nil;
-        }
-    };
+    // No-op for legacy button styling to avoid iOS 15-only APIs.
 }
 
 - (void)layoutSubviews {

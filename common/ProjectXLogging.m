@@ -26,16 +26,32 @@ void PXLog(NSString *format, ...) {
         // Determine log file path
         NSString *logFilePath = nil;
         
-        // Check for rootless jailbreak paths
-        NSArray *possiblePaths = @[
+        BOOL hasRootfulLaunchd = [[NSFileManager defaultManager] fileExistsAtPath:@"/Library/LaunchDaemons/wangmc.projectx.plist"];
+        BOOL hasRootlessPrefix = [[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb"];
+        NSArray *possiblePaths = hasRootfulLaunchd ? @[
+            @"/var/mobile/Library/Logs/ProjectX",
+            @"/var/jb/var/mobile/Library/Logs/ProjectX",
+            @"/var/jb/private/var/mobile/Library/Logs/ProjectX",
+            @"/var/LIB/var/mobile/Library/Logs/ProjectX"
+        ] : (hasRootlessPrefix ? @[
             @"/var/jb/var/mobile/Library/Logs/ProjectX",
             @"/var/jb/private/var/mobile/Library/Logs/ProjectX",
             @"/var/LIB/var/mobile/Library/Logs/ProjectX",
             @"/var/mobile/Library/Logs/ProjectX"
-        ];
+        ] : @[
+            @"/var/mobile/Library/Logs/ProjectX",
+            @"/var/jb/var/mobile/Library/Logs/ProjectX",
+            @"/var/jb/private/var/mobile/Library/Logs/ProjectX",
+            @"/var/LIB/var/mobile/Library/Logs/ProjectX"
+        ]);
         
         for (NSString *path in possiblePaths) {
-            if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+            NSError *createError = nil;
+            BOOL created = [[NSFileManager defaultManager] createDirectoryAtPath:path
+                                                     withIntermediateDirectories:YES
+                                                                      attributes:nil
+                                                                           error:&createError];
+            if (created || [[NSFileManager defaultManager] fileExistsAtPath:path]) {
                 logFilePath = [path stringByAppendingPathComponent:@"ProjectX.log"];
                 break;
             }

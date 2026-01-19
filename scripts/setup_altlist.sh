@@ -18,37 +18,60 @@ else
   exit 1
 fi
 
-DEB_URL="$(python3 - <<'PY'
-import json
-import urllib.request
-url = "https://api.github.com/repos/opa334/AltList/releases/latest"
-with urllib.request.urlopen(url) as response:
-    data = json.load(response)
-for asset in data.get("assets", []):
-    name = asset.get("name", "")
-    if name.endswith(".deb"):
-        print(asset.get("browser_download_url", ""))
-        break
-PY
-)"
+DERIVED_DATA_PATH="$TMP_DIR/altlist_derived"
+BUILD_CONFIGURATION="Release"
 
-if [[ -z "$DEB_URL" ]]; then
-  echo "AltList release .deb not found" >&2
+WORKSPACE_PATH="$(find "$ALT_DIR" -maxdepth 6 -name "*.xcworkspace" -print -quit)"
+PROJECT_PATH="$(find "$ALT_DIR" -maxdepth 6 -name "*.xcodeproj" -print -quit)"
+
+if [[ -n "$WORKSPACE_PATH" ]]; then
+  xcodebuild \
+    -workspace "$WORKSPACE_PATH" \
+    -scheme "AltList" \
+    -configuration "$BUILD_CONFIGURATION" \
+    -sdk iphoneos \
+    -derivedDataPath "$DERIVED_DATA_PATH" \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGNING_IDENTITY=""
+elif [[ -n "$PROJECT_PATH" ]]; then
+  xcodebuild \
+    -project "$PROJECT_PATH" \
+    -scheme "AltList" \
+    -configuration "$BUILD_CONFIGURATION" \
+    -sdk iphoneos \
+    -derivedDataPath "$DERIVED_DATA_PATH" \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGNING_IDENTITY=""
+elif [[ -f "$ALT_DIR/Makefile" ]]; then
+  if ! make -C "$ALT_DIR" framework; then
+    echo "AltList Makefile has no 'framework' target; falling back to default build." >&2
+    make -C "$ALT_DIR" SUBPROJECTS=
+  fi
+else
+  echo "AltList Xcode project/workspace not found; cannot build framework." >&2
+  echo "Searched for *.xcworkspace and *.xcodeproj within $ALT_DIR." >&2
+  echo "Also looked for a Makefile at $ALT_DIR/Makefile." >&2
   exit 1
 fi
 
-curl -fsSL "$DEB_URL" -o "$TMP_DIR/AltList.deb"
+SEARCH_PATHS=("$ALT_DIR")
+if [[ -d "$DERIVED_DATA_PATH" ]]; then
+  SEARCH_PATHS+=("$DERIVED_DATA_PATH")
+fi
 
-dpkg-deb -x "$TMP_DIR/AltList.deb" "$TMP_DIR/altlist_extract"
-FRAMEWORK_PATH="$(find "$TMP_DIR/altlist_extract" -name AltList.framework -print -quit)"
+FRAMEWORK_PATH="$(find "${SEARCH_PATHS[@]}" -name AltList.framework -print -quit)"
 if [[ -n "$FRAMEWORK_PATH" ]]; then
   mkdir -p "$THEOS/lib"
-  cp -R "$FRAMEWORK_PATH" "$THEOS/lib/"
+  DEST_FRAMEWORK="$THEOS/lib/AltList.framework"
+  rm -rf "$DEST_FRAMEWORK"
+  cp -R "$FRAMEWORK_PATH" "$DEST_FRAMEWORK"
   if [[ -d "$FRAMEWORK_PATH/Headers" ]]; then
     mkdir -p "$THEOS/include/AltList"
     cp -R "$FRAMEWORK_PATH/Headers/"* "$THEOS/include/AltList/"
   fi
 else
-  echo "AltList.framework not found in release .deb" >&2
+  echo "AltList.framework not found in build output." >&2
   exit 1
 fi
