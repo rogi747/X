@@ -4,6 +4,7 @@
 #import <UIKit/UIKit.h>
 #import <sys/utsname.h>
 #import <sys/sysctl.h>
+#import <errno.h>
 #import <IOKit/IOKitLib.h>
 #import <dlfcn.h>
 #import <mach-o/dyld.h>
@@ -18,13 +19,29 @@ typedef struct xsw_usage xsw_usage;
 static int (*orig_uname)(struct utsname *);
 static int (*orig_sysctlbyname)(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
 static int (*orig_sysctl)(int *, u_int, void *, size_t *, void *, size_t);
+static __thread BOOL px_sysctlbyname_in_hook = NO;
 
+%ctor {
+    @autoreleasepool {
+        NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
+        NSString *processName = [[NSProcessInfo processInfo] processName];
+        PXLog(@"[DeviceModelHooks] ✅ loaded in process=%@ bundle=%@", processName, bundleID);
+    }
+}
 
 #pragma mark - Hook Implementations
 
 // Hook for uname() system call - used by many apps to detect device model
 static int hook_uname(struct utsname *buf) {
+    if (!buf) {
+        PXLog(@"[model] ⚠️ uname received NULL buffer; returning -1 to avoid crash");
+        return -1;
+    }
     // Call the original first
+    if (!orig_uname) {
+        PXLog(@"[model] ⚠️ uname original is NULL; returning -1 to avoid crash");
+        return -1;
+    }
     int ret = orig_uname(buf);
     
     if (ret != 0) {
@@ -72,7 +89,22 @@ static int hook_uname(struct utsname *buf) {
 
 // Hook for sysctlbyname - another common way to get device model
 static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
-    // First, we need to log that this call happened
+    if (!orig_sysctlbyname) {
+        return -1;
+    }
+    if (px_sysctlbyname_in_hook) {
+        return orig_sysctlbyname(name, oldp, oldlenp, newp, newlen);
+    }
+    if (!name) {
+        errno = EINVAL;
+        return -1;
+    }
+    // Safety: if caller passes NULL out pointers, do not spoof or touch them
+    if (!oldp || !oldlenp) {
+        return orig_sysctlbyname(name, oldp, oldlenp, newp, newlen);
+    }
+    px_sysctlbyname_in_hook = YES;
+
     NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
     // if (isHWMachine || isHWModel || isOSVersion) {
         // Make a copy of the original value for logging purposes
@@ -81,14 +113,12 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
 
     // Get the original value first to show before/after in logs
     int origResult = orig_sysctlbyname(name, originalValue, &originalLen, NULL, 0);
-    if(!name){
-        return origResult;
-    }
 
 
     // Get device specs
     DeviceModel *model = CurrentPhoneInfo().deviceModel;
     if (!model) {
+        px_sysctlbyname_in_hook = NO;
         return origResult;
     }
 
@@ -107,7 +137,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
     // Handle CPU-related sysctls
     else if (strcmp(name, "hw.ncpu") == 0 || strcmp(name, "hw.activecpu") == 0) {
         // Number of CPUs / Active CPUs
-        if (cpuCoreCount > 0) {
+        if (cpuCoreCount > 0 && oldp && oldlenp) {
             if (*oldlenp == sizeof(uint32_t)) {
                 *(uint32_t *)oldp = (uint32_t)cpuCoreCount;
             } else if (*oldlenp == sizeof(int)) {
@@ -115,18 +145,22 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
             } else if (*oldlenp == sizeof(unsigned long)) {
                 *(unsigned long *)oldp = (unsigned long)cpuCoreCount;
             }
+            px_sysctlbyname_in_hook = NO;
+            return 0;
         }
     }
     else if (strcmp(name, "hw.cpu.brand_string") == 0 || strcmp(name, "hw.cpubrand") == 0 || strcmp(name, "hw.model") == 0) {
         // CPU Brand/Model Name - return the processor name like "Apple A11 Bionic"
         if (cpuArchitecture && cpuArchitecture.length > 0) {
             const char *cpuBrand = [cpuArchitecture UTF8String];
-            if (cpuBrand && *oldlenp > 0) {
+            if (cpuBrand && oldp && oldlenp && *oldlenp > 0) {
                 size_t brandLen = strlen(cpuBrand);
                 if (brandLen < *oldlenp) {
                     *oldlenp = brandLen + 1;
                     memset(oldp, 0, *oldlenp);
                     strcpy(oldp, cpuBrand);
+                    px_sysctlbyname_in_hook = NO;
+                    return 0;
                 } else {
                     PXLog(@"[DeviceSpec] WARNING: CPU brand string too long for buffer");
                 }
@@ -135,8 +169,10 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
     }
     else if (strcmp(name, "hw.cputype") == 0) {
         // CPU Type - ARM64 is already defined as CPU_TYPE_ARM64 in system headers
-        if (*oldlenp >= sizeof(uint32_t)) {
+        if (oldp && oldlenp && *oldlenp >= sizeof(uint32_t)) {
             *(uint32_t *)oldp = CPU_TYPE_ARM64;
+            px_sysctlbyname_in_hook = NO;
+            return 0;
         }
     }
     else if (strcmp(name, "hw.cpusubtype") == 0) {
@@ -173,7 +209,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
             }
         }
         
-        if (*oldlenp >= sizeof(uint32_t)) {
+        if (oldp && oldlenp && *oldlenp >= sizeof(uint32_t)) {
             *(uint32_t *)oldp = cpuSubtype;
         }
     }
@@ -211,7 +247,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
             }
         }
         
-        if (*oldlenp >= sizeof(uint32_t)) {
+        if (oldp && oldlenp && *oldlenp >= sizeof(uint32_t)) {
             *(uint32_t *)oldp = cpuFamily;
         }
     }
@@ -254,7 +290,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
             }
         }
         
-        if (*oldlenp >= sizeof(uint64_t)) {
+        if (oldp && oldlenp && *oldlenp >= sizeof(uint64_t)) {
             *(uint64_t *)oldp = cpuFrequency;
         } else if (*oldlenp >= sizeof(uint32_t)) {
             *(uint32_t *)oldp = (uint32_t)cpuFrequency;
@@ -264,7 +300,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
         // Cache line size - typically 64 bytes for ARM64
         uint32_t cacheLineSize = 64;
         
-        if (*oldlenp >= sizeof(uint32_t)) {
+        if (oldp && oldlenp && *oldlenp >= sizeof(uint32_t)) {
             *(uint32_t *)oldp = cacheLineSize;
         }
     }
@@ -318,7 +354,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
         unsigned long long totalMemory = deviceMemoryGB * 1024 * 1024 * 1024;
         
         // Different sysctls might return different size types
-        if (*oldlenp == sizeof(uint64_t)) {
+        if (oldp && oldlenp && *oldlenp == sizeof(uint64_t)) {
             *(uint64_t *)oldp = totalMemory;
         } else if (*oldlenp == sizeof(uint32_t)) {
             *(uint32_t *)oldp = (uint32_t)totalMemory;
@@ -363,7 +399,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
             }
         }
         
-        if (*oldlenp >= sizeof(uint32_t)) {
+        if (oldp && oldlenp && *oldlenp >= sizeof(uint32_t)) {
             *(uint32_t *)oldp = featureSupported ? 1 : 0;
         }
     }
@@ -383,7 +419,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
         }
         
         const char *featuresStr = [cpuFeatures UTF8String];
-        if (featuresStr && *oldlenp > 0) {
+        if (featuresStr && oldp && oldlenp && *oldlenp > 0) {
             size_t featuresLen = strlen(featuresStr);
             if (featuresLen < *oldlenp) {
                 *oldlenp = featuresLen + 1;
@@ -399,6 +435,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
             boottime.tv_usec = 0;
             memcpy(oldp, &boottime, sizeof(boottime));
             *oldlenp = sizeof(boottime);
+            px_sysctlbyname_in_hook = NO;
             return 0; // Success
         }
     }
@@ -424,6 +461,7 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
                     PXLog(@"[model] Spoofed sysctlbyname %s to: %s for app: %@", 
                             name, valueToUse, bundleID);
                 }
+                px_sysctlbyname_in_hook = NO;
                 return 0;
             } else {
                 PXLog(@"[model] WARNING: Spoofed value too long for sysctlbyname buffer");
@@ -433,7 +471,9 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
         PXLog(@"[model] WARNING: Cannot spoof sysctlbyname, missing required params or spoofed value");
     }
     // For all other cases, pass through to the original function
-    return orig_sysctlbyname(name, oldp, oldlenp, newp, newlen);
+    int result = orig_sysctlbyname(name, oldp, oldlenp, newp, newlen);
+    px_sysctlbyname_in_hook = NO;
+    return result;
 }
 
 
@@ -529,9 +569,22 @@ static int hook_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void
 // static int (*orig_sysctl)(int *, u_int, void *, size_t *, void *, size_t);
 
 static int hook_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
+    if (!orig_sysctl) {
+        PXLog(@"[model] ⚠️ sysctl original is NULL; returning -1 to avoid crash");
+        return -1;
+    }
+    if (!name) {
+        PXLog(@"[model] ⚠️ sysctl received NULL name; returning -1 to avoid crash");
+        return -1;
+    }
     // Get the bundle ID first to determine if we should spoof
     NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
     if (!bundleID) {
+        return orig_sysctl(name, namelen, oldp, oldlenp, newp, newlen);
+    }
+
+    // Safety: if caller passes NULL out pointers (common anti-tamper probe), do not spoof or touch them
+    if (!oldp || !oldlenp) {
         return orig_sysctl(name, namelen, oldp, oldlenp, newp, newlen);
     }
     

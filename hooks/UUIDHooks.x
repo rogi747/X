@@ -15,6 +15,120 @@
 // Macro for iOS version checking
 #define SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO(v) ([[[UIDevice currentDevice] systemVersion] compare:v options:NSNumericSearch] != NSOrderedAscending)
 
+%hook NSString
+
+static void PXAppendCStringLog(NSString *message) {
+    if (!message.length) {
+        return;
+    }
+    NSArray<NSString *> *directories = @[
+        @"/var/mobile/Library/Logs/ProjectX",
+        [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Logs/ProjectX"]
+    ];
+    NSString *path = nil;
+    for (NSString *directory in directories) {
+        NSError *dirError = nil;
+        BOOL created = [[NSFileManager defaultManager] createDirectoryAtPath:directory
+                                                 withIntermediateDirectories:YES
+                                                                  attributes:nil
+                                                                       error:&dirError];
+        if (!created && dirError) {
+            PXLog(@"[WeaponX] ⚠️ Failed to create log directory %@: %@", directory, dirError);
+            continue;
+        }
+        path = [directory stringByAppendingPathComponent:@"projectx_cstring.log"];
+        break;
+    }
+    if (!path) {
+        PXLog(@"[WeaponX] ⚠️ Failed to resolve cstring log path.");
+        return;
+    }
+    NSString *line = [message stringByAppendingString:@"\n"];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data) {
+        return;
+    }
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle) {
+        if (![[NSFileManager defaultManager] createFileAtPath:path contents:data attributes:nil]) {
+            PXLog(@"[WeaponX] ⚠️ Failed to create log file at %@", path);
+        }
+        return;
+    }
+    @try {
+        [handle seekToEndOfFile];
+        [handle writeData:data];
+    } @catch (NSException *exception) {
+        PXLog(@"[WeaponX] ⚠️ Failed to write cstring log: %@", exception);
+    } @finally {
+        [handle closeFile];
+    }
+}
+
++ (instancetype)stringWithCString:(const char *)cString encoding:(NSStringEncoding)enc {
+    if (!cString) {
+        NSString *message = [NSString stringWithFormat:@"[WeaponX] ⚠️ stringWithCString:encoding: received NULL. Stack: %@", [NSThread callStackSymbols]];
+        PXLog(@"%@", message);
+        PXAppendCStringLog(message);
+        return @"";
+    }
+    return %orig;
+}
+
++ (instancetype)stringWithUTF8String:(const char *)nullTerminatedCString {
+    if (!nullTerminatedCString) {
+        NSString *message = [NSString stringWithFormat:@"[WeaponX] ⚠️ stringWithUTF8String: received NULL. Stack: %@", [NSThread callStackSymbols]];
+        PXLog(@"%@", message);
+        PXAppendCStringLog(message);
+        return @"";
+    }
+    return %orig;
+}
+
+%end
+
+%hook NSProcessInfo
+
+- (BOOL)isMacCatalystApp {
+    return NO;
+}
+
+- (BOOL)isiOSAppOnMac {
+    return NO;
+}
+
+%end
+
+static BOOL PXNSProcessInfoReturnNo(id self, SEL _cmd) {
+    return NO;
+}
+
+%ctor {
+    @autoreleasepool {
+        Class processInfoClass = objc_getClass("NSProcessInfo");
+        if (processInfoClass) {
+            SEL iosAppOnMacSel = @selector(isiOSAppOnMac);
+            if (![processInfoClass instancesRespondToSelector:iosAppOnMacSel]) {
+                class_addMethod(processInfoClass, iosAppOnMacSel, (IMP)PXNSProcessInfoReturnNo, "c@:");
+                PXLog(@"[WeaponX] ✅ Added isiOSAppOnMac fallback to NSProcessInfo");
+            }
+            SEL catalystSel = @selector(isMacCatalystApp);
+            if (![processInfoClass instancesRespondToSelector:catalystSel]) {
+                class_addMethod(processInfoClass, catalystSel, (IMP)PXNSProcessInfoReturnNo, "c@:");
+                PXLog(@"[WeaponX] ✅ Added isMacCatalystApp fallback to NSProcessInfo");
+            }
+        } else {
+            PXLog(@"[WeaponX] ⚠️ NSProcessInfo class not found for fallback selectors");
+        }
+        NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
+        NSString *processName = [[NSProcessInfo processInfo] processName];
+        PXLog(@"[WeaponX] ✅ UUIDHooks loaded in process=%@ bundle=%@", processName, bundleID);
+        NSString *logMessage = [NSString stringWithFormat:@"[WeaponX] ✅ UUIDHooks loaded in process=%@ bundle=%@", processName, bundleID];
+        PXAppendCStringLog(logMessage);
+        PXLog(@"[WeaponX] 📄 Cstring log paths: /var/mobile/Library/Logs/ProjectX/projectx_cstring.log or %@",
+              [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Logs/ProjectX/projectx_cstring.log"]);
+    }
+}
 
 #pragma mark - NSUUID Hooks
 
@@ -31,6 +145,8 @@
                 PXLog(@"[WeaponX] 🔄 Spoofing NSUUID with: %@", bootUUID);
                 return uuid;
             }
+        } else {
+            PXLog(@"[WeaponX] ⚠️ NSUUID+UUID missing bootUUID; using original.");
         }
     } @catch (NSException *exception) {
         PXLog(@"[WeaponX] ❌ Exception in NSUUID+UUID: %@", exception);
@@ -364,6 +480,10 @@ static NSMutableDictionary *threadLocalCaches() {
 // Create a copy of the image infos structure with spoofed UUID
 static const struct dyld_all_image_infos* replaced_dyld_get_all_image_infos(void) {
     @try {
+        if (!orig_dyld_get_all_image_infos) {
+            PXLog(@"[WeaponX] ⚠️ _dyld_get_all_image_infos original is NULL; returning NULL to avoid crash");
+            return NULL;
+        }
         const struct dyld_all_image_infos *original = orig_dyld_get_all_image_infos();
         if (!original) return NULL;
         
@@ -430,6 +550,10 @@ static const struct dyld_all_image_infos* replaced_dyld_get_all_image_infos(void
         PXLog(@"[WeaponX] ❌ Exception in replaced_dyld_get_all_image_infos: %@", exception);
     }
     
+    if (!orig_dyld_get_all_image_infos) {
+        PXLog(@"[WeaponX] ⚠️ _dyld_get_all_image_infos original is NULL; returning NULL to avoid crash");
+        return NULL;
+    }
     return orig_dyld_get_all_image_infos();
 }
 
@@ -494,6 +618,10 @@ static int replaced_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, 
     }
     
     // Call original
+    if (!orig_sysctlbyname) {
+        PXLog(@"[WeaponX] ⚠️ sysctlbyname original is NULL; returning -1 to avoid crash");
+        return -1;
+    }
     return orig_sysctlbyname(name, oldp, oldlenp, newp, newlen);
 }
 

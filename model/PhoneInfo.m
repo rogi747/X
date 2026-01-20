@@ -1,4 +1,65 @@
 #import "PhoneInfo.h"
+#import "ProjectXLogging.h"
+#import <UIKit/UIKit.h>
+#import <sys/sysctl.h>
+
+static CFPropertyListRef PXCopyPhoneInfoPrefs(CFStringRef user, CFStringRef host) {
+    return CFPreferencesCopyValue(
+        CFSTR("PhoneInfo"),
+        CFSTR("com.projectx.phoneinfo"),
+        user,
+        host
+    );
+}
+
+static NSDictionary *PXLoadPhoneInfoFromPlistPath(NSString *path) {
+    if (path.length == 0) {
+        return nil;
+    }
+    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
+    if (dict.count == 0) {
+        return nil;
+    }
+    return dict;
+}
+
+static NSString *PXSysctlString(const char *name) {
+    size_t size = 0;
+    if (sysctlbyname(name, NULL, &size, NULL, 0) != 0 || size == 0) {
+        return nil;
+    }
+    char *value = malloc(size);
+    if (!value) {
+        return nil;
+    }
+    if (sysctlbyname(name, value, &size, NULL, 0) != 0) {
+        free(value);
+        return nil;
+    }
+    NSString *result = [NSString stringWithUTF8String:value];
+    free(value);
+    return result;
+}
+
+static PhoneInfo *PXFallbackPhoneInfo(void) {
+    PhoneInfo *info = [[PhoneInfo alloc] init];
+    NSString *hwMachine = PXSysctlString("hw.machine");
+    NSString *osVersion = [[UIDevice currentDevice] systemVersion];
+    NSString *build = PXSysctlString("kern.osversion");
+
+    DeviceModel *model = [[DeviceModel alloc] init];
+    model.modelName = hwMachine ?: @"";
+    model.hwModel = hwMachine ?: @"";
+    info.deviceModel = model;
+
+    IosVersion *iosVersion = [[IosVersion alloc] init];
+    iosVersion.version = osVersion ?: @"";
+    iosVersion.build = build ?: @"";
+    info.iosVersion = iosVersion;
+
+    PXLog(@"[PhoneInfo] ⚠️ Using fallback PhoneInfo hw.machine=%@ build=%@", hwMachine ?: @"<nil>", build ?: @"<nil>");
+    return info;
+}
 
 @implementation PhoneInfo
 #pragma mark - JSON 序列化
@@ -115,23 +176,69 @@
 }
 
 + (instancetype)loadFromPrefs{
-    CFPropertyListRef value =
-        CFPreferencesCopyValue(
-            CFSTR("PhoneInfo"),
-            CFSTR("com.projectx.phoneinfo"),
-            kCFPreferencesAnyUser,
-            kCFPreferencesCurrentHost
-        );
+    NSArray<NSDictionary *> *domains = @[
+        @{@"user": (__bridge id)kCFPreferencesAnyUser, @"host": (__bridge id)kCFPreferencesCurrentHost, @"label": @"AnyUser/CurrentHost"},
+        @{@"user": (__bridge id)kCFPreferencesCurrentUser, @"host": (__bridge id)kCFPreferencesAnyHost, @"label": @"CurrentUser/AnyHost"},
+        @{@"user": (__bridge id)kCFPreferencesCurrentUser, @"host": (__bridge id)kCFPreferencesCurrentHost, @"label": @"CurrentUser/CurrentHost"},
+        @{@"user": (__bridge id)kCFPreferencesAnyUser, @"host": (__bridge id)kCFPreferencesAnyHost, @"label": @"AnyUser/AnyHost"}
+    ];
 
-    if (!value || CFGetTypeID(value) != CFDictionaryGetTypeID()) {
-        if (value) CFRelease(value);
-        return nil;
+    for (NSDictionary *entry in domains) {
+        CFStringRef user = (__bridge CFStringRef)entry[@"user"];
+        CFStringRef host = (__bridge CFStringRef)entry[@"host"];
+        NSString *label = entry[@"label"];
+        CFPropertyListRef value = PXCopyPhoneInfoPrefs(user, host);
+        if (!value) {
+            PXLog(@"[PhoneInfo] ⚠️ CFPreferencesCopyValue (%@) returned nil.", label);
+            continue;
+        }
+        if (CFGetTypeID(value) != CFDictionaryGetTypeID()) {
+            PXLog(@"[PhoneInfo] ⚠️ CFPreferencesCopyValue (%@) returned non-dictionary.", label);
+            CFRelease(value);
+            continue;
+        }
+
+        NSDictionary *dict = (__bridge_transfer NSDictionary *)value;
+        PhoneInfo *info = [PhoneInfo fromDictionary:dict];
+        if (!info) {
+            PXLog(@"[PhoneInfo] ⚠️ Failed to decode PhoneInfo dictionary (%@).", label);
+            continue;
+        }
+        NSString *modelName = info.deviceModel.modelName;
+        NSString *build = info.iosVersion.build;
+        if (modelName.length == 0 || build.length == 0) {
+            PXLog(@"[PhoneInfo] ⚠️ Loaded with missing values model=%@ build=%@ (%@).", modelName ?: @"<nil>", build ?: @"<nil>", label);
+        }
+        return info;
     }
 
-    NSDictionary *dict = (__bridge NSDictionary *)value;
-    PhoneInfo *info = [PhoneInfo fromDictionary:dict];
-    CFRelease(value);
-    return info;
+    NSArray<NSString *> *plistPaths = @[
+        @"/var/mobile/Library/Preferences/com.projectx.phoneinfo.plist",
+        [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Preferences/com.projectx.phoneinfo.plist"],
+        @"/var/jb/var/mobile/Library/Preferences/com.projectx.phoneinfo.plist",
+        @"/var/jb/private/var/mobile/Library/Preferences/com.projectx.phoneinfo.plist"
+    ];
+    for (NSString *path in plistPaths) {
+        NSDictionary *dict = PXLoadPhoneInfoFromPlistPath(path);
+        if (!dict) {
+            PXLog(@"[PhoneInfo] ⚠️ No plist data at %@", path);
+            continue;
+        }
+        PhoneInfo *info = [PhoneInfo fromDictionary:dict];
+        if (!info) {
+            PXLog(@"[PhoneInfo] ⚠️ Failed to decode PhoneInfo plist at %@", path);
+            continue;
+        }
+        NSString *modelName = info.deviceModel.modelName;
+        NSString *build = info.iosVersion.build;
+        if (modelName.length == 0 || build.length == 0) {
+            PXLog(@"[PhoneInfo] ⚠️ Loaded plist with missing values model=%@ build=%@ path=%@", modelName ?: @"<nil>", build ?: @"<nil>", path);
+        }
+        return info;
+    }
+
+    PXLog(@"[PhoneInfo] ⚠️ All prefs/plist attempts failed; using fallback values.");
+    return PXFallbackPhoneInfo();
 }
 
 #pragma mark - 直接字典存储和读取
@@ -162,6 +269,48 @@
         kCFPreferencesAnyUser,
         kCFPreferencesCurrentHost
     );
+    CFPreferencesSetValue(
+        CFSTR("PhoneInfo"),
+        (__bridge CFPropertyListRef)dict,
+        CFSTR("com.projectx.phoneinfo"),
+        kCFPreferencesAnyUser,
+        kCFPreferencesAnyHost
+    );
+    CFPreferencesSynchronize(
+        CFSTR("com.projectx.phoneinfo"),
+        kCFPreferencesAnyUser,
+        kCFPreferencesAnyHost
+    );
+    CFPreferencesSetValue(
+        CFSTR("PhoneInfo"),
+        (__bridge CFPropertyListRef)dict,
+        CFSTR("com.projectx.phoneinfo"),
+        kCFPreferencesCurrentUser,
+        kCFPreferencesAnyHost
+    );
+    CFPreferencesSynchronize(
+        CFSTR("com.projectx.phoneinfo"),
+        kCFPreferencesCurrentUser,
+        kCFPreferencesAnyHost
+    );
+    NSString *primaryPath = @"/var/mobile/Library/Preferences/com.projectx.phoneinfo.plist";
+    if (![PhoneInfo saveDictionaryToFile:dict toFile:primaryPath]) {
+        PXLog(@"[PhoneInfo] ⚠️ Failed to write plist to %@", primaryPath);
+    } else {
+        PXLog(@"[PhoneInfo] ✅ Wrote plist to %@", primaryPath);
+    }
+    NSString *jbPath = @"/var/jb/var/mobile/Library/Preferences/com.projectx.phoneinfo.plist";
+    if (![PhoneInfo saveDictionaryToFile:dict toFile:jbPath]) {
+        PXLog(@"[PhoneInfo] ⚠️ Failed to write plist to %@", jbPath);
+    } else {
+        PXLog(@"[PhoneInfo] ✅ Wrote plist to %@", jbPath);
+    }
+    NSString *sandboxPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Preferences/com.projectx.phoneinfo.plist"];
+    if (![PhoneInfo saveDictionaryToFile:dict toFile:sandboxPath]) {
+        PXLog(@"[PhoneInfo] ⚠️ Failed to write plist to %@", sandboxPath);
+    } else {
+        PXLog(@"[PhoneInfo] ✅ Wrote plist to %@", sandboxPath);
+    }
     return YES;
 }
 /**
@@ -196,18 +345,18 @@
     }
     
     NSError *error = nil;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:dict 
-                                                       options:NSJSONWritingPrettyPrinted 
-                                                         error:&error];
-    
-    if (error) {
-        NSLog(@"JSON 序列化失败: %@", error);
+    NSData *plistData = [NSPropertyListSerialization dataWithPropertyList:dict
+                                                                   format:NSPropertyListXMLFormat_v1_0
+                                                                  options:0
+                                                                    error:&error];
+    if (error || !plistData) {
+        NSLog(@"Plist 序列化失败: %@", error);
         return NO;
     }
     
-    BOOL success = [jsonData writeToFile:filePath 
-                                 options:NSDataWritingAtomic 
-                                   error:&error];
+    BOOL success = [plistData writeToFile:filePath
+                                  options:NSDataWritingAtomic
+                                    error:&error];
     
     if (!success) {
         NSLog(@"写入文件失败: %@, error: %@", filePath, error);
